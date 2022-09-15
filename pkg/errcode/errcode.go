@@ -29,6 +29,9 @@ const (
 	// ErrFetchingControllerPod indicates the osm-controller pod resource could not be fetched
 	ErrFetchingControllerPod
 
+	// ErrFetchingControllerSvc indicates the osm-controller svc resource could not be fetched
+	ErrFetchingControllerSvc
+
 	// ErrFetchingInjectorPod indicates the osm-injector pod resource could not be fetched
 	ErrFetchingInjectorPod
 
@@ -37,6 +40,9 @@ const (
 
 	// ErrStartingReconciler indicates the reconciler client failed to start
 	ErrStartingReconciler
+
+	// ErrFetchingDNSSvc indicates the dns svc resource could not be fetched
+	ErrFetchingDNSSvc
 )
 
 // Range 2000-2500 is reserved for errors related to traffic policies

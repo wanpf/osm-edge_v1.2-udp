@@ -101,6 +101,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: CONTROLLER_SVC_NAME
+              value: osm-controller
+            - name: DNS_SVC_NAME
+              value: kube-dns
+            - name: DNS_SVC_NS_NAME
+              value: kube-system
             - name: OSM_DEFAULT_SIDECAR_CLASS
               value: "{{ .Values.osm.sidecarClass }}"
             - name: OSM_DEFAULT_SIDECAR_IMAGE

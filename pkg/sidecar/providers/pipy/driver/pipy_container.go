@@ -1,14 +1,19 @@
 package driver
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/pointer"
 
 	"github.com/openservicemesh/osm/pkg/configurator"
 	"github.com/openservicemesh/osm/pkg/constants"
+	"github.com/openservicemesh/osm/pkg/errcode"
 	"github.com/openservicemesh/osm/pkg/injector"
 	"github.com/openservicemesh/osm/pkg/models"
 	"github.com/openservicemesh/osm/pkg/sidecar/driver"
@@ -29,10 +34,18 @@ func getPlatformSpecificSpecComponents(cfg configurator.Configurator, podOS stri
 	} else {
 		podSecurityContext = &corev1.SecurityContext{
 			AllowPrivilegeEscalation: pointer.BoolPtr(false),
-			RunAsUser: func() *int64 {
-				uid := constants.SidecarUID
-				return &uid
-			}(),
+			//RunAsUser: func() *int64 {
+			//	uid := constants.SidecarUID
+			//	return &uid
+			//}(),
+			Capabilities: &corev1.Capabilities{
+				Add: []corev1.Capability{
+					"NET_ADMIN",
+				},
+			},
+			RunAsNonRoot: pointer.BoolPtr(false),
+			// User ID 0 corresponds to root
+			RunAsUser: pointer.Int64Ptr(0),
 		}
 		pipyContainer = cfg.GetSidecarImage()
 	}
@@ -59,6 +72,11 @@ func getPipySidecarContainerSpec(injCtx *driver.InjectorContext, pod *corev1.Pod
 			podControllerKind = "Deployment"
 			podControllerName = podControllerName[:hyp]
 		}
+	}
+
+	dnsServiceIP := ""
+	if dnsSvc, err := getDNSSvc(injCtx.KubeClient); err == nil {
+		dnsServiceIP = dnsSvc.Spec.ClusterIP
 	}
 
 	pipyRepo := fmt.Sprintf("%s://%s.%s:%v/repo/osm-edge-sidecar/%s/", constants.ProtocolHTTP,
@@ -130,6 +148,10 @@ func getPipySidecarContainerSpec(injCtx *driver.InjectorContext, pod *corev1.Pod
 				Name:  "POD_CONTROLLER_NAME",
 				Value: podControllerName,
 			},
+			{
+				Name:  "DNS_SVC_IP",
+				Value: dnsServiceIP,
+			},
 		},
 	}
 
@@ -146,6 +168,24 @@ func getPipySidecarContainerSpec(injCtx *driver.InjectorContext, pod *corev1.Pod
 				Value: injCtx.Configurator.GetTracingEndpoint(),
 			})
 		}
+	}
+
+	if osmControllerSvc, err := getOSMControllerSvc(injCtx.KubeClient, injCtx.OsmNamespace); err == nil {
+		pod.Spec.HostAliases = append(pod.Spec.HostAliases, corev1.HostAlias{
+			IP:        osmControllerSvc.Spec.ClusterIP,
+			Hostnames: []string{fmt.Sprintf("%s.%s", constants.OSMControllerName, injCtx.OsmNamespace)},
+		})
+	}
+
+	pod.Spec.DNSPolicy = "None"
+	trustDomain := injCtx.CertManager.GetTrustDomain()
+	ndots := "5"
+	pod.Spec.DNSConfig = &corev1.PodDNSConfig{
+		Nameservers: []string{"127.0.0.153"},
+		Searches:    []string{fmt.Sprintf("svc.%s", trustDomain), trustDomain},
+		Options: []corev1.PodDNSConfigOption{
+			{Name: "ndots", Value: &ndots},
+		},
 	}
 
 	return sidecarContainer
@@ -199,4 +239,46 @@ func getPipyContainerPorts(originalHealthProbes models.HealthProbes) []corev1.Co
 	}
 
 	return containerPorts
+}
+
+// getOSMControllerSvc returns the osm-controller service.
+// The pod name is inferred from the 'CONTROLLER_SVC_NAME' env variable which is set during deployment.
+func getOSMControllerSvc(kubeClient kubernetes.Interface, osmNamespace string) (*corev1.Service, error) {
+	svcName := os.Getenv("CONTROLLER_SVC_NAME")
+	if svcName == "" {
+		return nil, fmt.Errorf("CONTROLLER_SVC_NAME env variable cannot be empty")
+	}
+
+	svc, err := kubeClient.CoreV1().Services(osmNamespace).Get(context.TODO(), svcName, metav1.GetOptions{})
+	if err != nil {
+		// TODO(#3962): metric might not be scraped before process restart resulting from this error
+		log.Error().Err(err).Str(errcode.Kind, errcode.GetErrCodeWithMetric(errcode.ErrFetchingControllerSvc)).
+			Msgf("Error retrieving osm-controller service %s", svcName)
+		return nil, err
+	}
+
+	return svc, nil
+}
+
+// getDNSSvc returns the dns service.
+// The pod name is inferred from the 'CONTROLLER_SVC_NAME' env variable which is set during deployment.
+func getDNSSvc(kubeClient kubernetes.Interface) (*corev1.Service, error) {
+	nsName := os.Getenv("DNS_SVC_NS_NAME")
+	if nsName == "" {
+		return nil, fmt.Errorf("DNS_SVC_NS_NAME env variable cannot be empty")
+	}
+	svcName := os.Getenv("DNS_SVC_NAME")
+	if svcName == "" {
+		return nil, fmt.Errorf("DNS_SVC_NAME env variable cannot be empty")
+	}
+
+	svc, err := kubeClient.CoreV1().Services(nsName).Get(context.TODO(), svcName, metav1.GetOptions{})
+	if err != nil {
+		// TODO(#3962): metric might not be scraped before process restart resulting from this error
+		log.Error().Err(err).Str(errcode.Kind, errcode.GetErrCodeWithMetric(errcode.ErrFetchingDNSSvc)).
+			Msgf("Error retrieving dns service %s", svcName)
+		return nil, err
+	}
+
+	return svc, nil
 }
