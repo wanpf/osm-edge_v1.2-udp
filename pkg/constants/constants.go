@@ -43,6 +43,9 @@ const (
 	// SidecarUID is the Sidecar's User ID
 	SidecarUID int64 = 1500
 
+	// SidecarGID is the Sidecar's User ID
+	SidecarGID int64 = 1500
+
 	// SidecarWindowsUser is the Sidecar's User name on Windows.
 	SidecarWindowsUser string = "SidecarUser"
 
