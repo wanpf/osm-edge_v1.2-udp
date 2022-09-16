@@ -1,4 +1,4 @@
-// version: '2022.08.30'
+// version: '2022.09.16-rc2'
 ((
   {
     config,
@@ -42,6 +42,7 @@
   debugLogLevel && (logLogging = new logging.JSONLogger('access-logging').toFile('/dev/stdout').log),
 
   pipy({
+    _dnsSvcAddress: (os.env.DNS_SVC_IP || '10.96.0.10') + ":53"
   })
 
     .export('main', {
@@ -352,4 +353,156 @@
       $ => $.chain(['stats.js'])
     )
 
+    //
+    // DNS custom response
+    //
+    .listen('127.0.0.153:5300', {
+      protocol: 'udp',
+      transparent: true
+    })
+    .handleStreamStart(
+      () => (
+        null
+        // console.log(__inbound.remoteAddress + ':' + __inbound.remotePort + ' <---> ' + __inbound.destinationAddress + ':' + __inbound.destinationPort)
+      )
+    )
+    .decodeDNS(
+      () => (null)
+    )
+    .handleMessageStart(
+      msg => (null)
+    )
+    .encodeDNS(
+      () => (null)
+    )
+    .connect(() => _dnsSvcAddress, {
+      protocol: 'udp'
+    })
+    .decodeDNS(
+      () => (null)
+    )
+    .handleMessageStart(
+      msg => (
+        ((name, nsname, fake = false) => (
+          (msg.head.qdata[0].qclass == 1 &&
+            (msg.head.rcode == 3 || (msg.head.ancount == 0 && msg.head.nscount == 0))) &&
+          (
+            fake = true,
+            name = msg.head.qdata[0].name,
+            (msg.head.nscount > 0 && (nsname = msg.head.nsdata[0]?.name)) && (
+              // exclude domain suffix : search svc.cluster.local cluster.local
+              name.endsWith('.cluster.local') && nsname && (fake = false)
+            )
+          ),
+
+          // ipv4 : 127.0.0.2
+          fake && (msg.head.qdata[0].qtype == 1) && (() => (
+            msg.head.qr = 1,
+            msg.head.opcode = 0,
+            msg.head.aa = 0,
+            msg.head.tc = 0,
+            msg.head.rd = 1,
+            msg.head.ra = 1,
+            msg.head.zero = 0,
+            msg.head.rcode = 0,
+            // msg.head.qcount = 1,
+            msg.head.ancount = 1,
+            msg.head.nscount = 1,
+            msg.head.adcount = 0,
+            msg.head.qdata = [{
+              "name": name,
+              "qtype": 1,
+              "qclass": 1
+            }],
+            msg.head.andata = [{
+              "name": name,
+              "rtype": 1,
+              "rclass": 1,
+              "ttl": 5400,
+              "length": 4,
+              "rdata": {
+                "rdata": "127.0.0.2"
+              },
+              "encoding": 1
+            }],
+            msg.head.nsdata = [{
+              "name": name,
+              "rtype": 6,
+              "rclass": 1,
+              "ttl": 1800,
+              "length": 61,
+              "rdata": {
+                "rdata": {
+                  "mname": "a.gtld-servers.net",
+                  "rname": "nstld.verisign-grs.com",
+                  "serial": 1663232447,
+                  "refresh": 1800,
+                  "retry": 900,
+                  "expire": 604800,
+                  "minimum": 86400
+                }
+              }
+            }],
+            msg.head.addata = []
+          ))(),
+
+          // ipv6 : ::ffff:127.0.0.2
+          fake && (msg.head.qdata[0].qtype == 28) && (() => (
+            msg.head.qr = 1,
+            msg.head.opcode = 0,
+            msg.head.aa = 0,
+            msg.head.tc = 0,
+            msg.head.rd = 1,
+            msg.head.ra = 1,
+            msg.head.zero = 0,
+            msg.head.rcode = 0,
+            // msg.head.qcount = 1,
+            msg.head.ancount = 1,
+            msg.head.nscount = 1,
+            msg.head.adcount = 0,
+            msg.head.qdata = [{
+              "name": name,
+              "qtype": 28,
+              "qclass": 1
+            }],
+            msg.head.andata = [{
+              "name": name,
+              "rtype": 28,
+              "rclass": 1,
+              "ttl": 5400,
+              "length": 16,
+              "rdata": {
+                "rdata": "00000000000000000000ffff7f000002"
+              },
+              "encoding": 28
+            }],
+            msg.head.nsdata = [{
+              "name": name,
+              "rtype": 6,
+              "rclass": 1,
+              "ttl": 1800,
+              "length": 61,
+              "rdata": {
+                "rdata": {
+                  "mname": "a.gtld-servers.net",
+                  "rname": "nstld.verisign-grs.com",
+                  "serial": 1663232447,
+                  "refresh": 1800,
+                  "retry": 900,
+                  "expire": 604800,
+                  "minimum": 86400
+                }
+              }
+            }],
+            msg.head.addata = []
+          ))()
+
+        ))()
+      )
+    )
+    .encodeDNS(
+      () => (null)
+    )
+
 ))()
+

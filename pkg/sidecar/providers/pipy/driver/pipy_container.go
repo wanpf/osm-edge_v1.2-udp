@@ -34,18 +34,10 @@ func getPlatformSpecificSpecComponents(cfg configurator.Configurator, podOS stri
 	} else {
 		podSecurityContext = &corev1.SecurityContext{
 			AllowPrivilegeEscalation: pointer.BoolPtr(false),
-			//RunAsUser: func() *int64 {
-			//	uid := constants.SidecarUID
-			//	return &uid
-			//}(),
-			Capabilities: &corev1.Capabilities{
-				Add: []corev1.Capability{
-					"NET_ADMIN",
-				},
-			},
-			RunAsNonRoot: pointer.BoolPtr(false),
-			// User ID 0 corresponds to root
-			RunAsUser: pointer.Int64Ptr(0),
+			RunAsUser: func() *int64 {
+				uid := constants.SidecarUID
+				return &uid
+			}(),
 		}
 		pipyContainer = cfg.GetSidecarImage()
 	}

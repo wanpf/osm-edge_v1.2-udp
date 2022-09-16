@@ -21,6 +21,8 @@ var iptablesOutboundStaticRules = []string{
 	// Traffic to the Proxy Admin port flows to the Proxy -- not redirected
 	fmt.Sprintf("-A OSM_PROXY_OUT_REDIRECT -p tcp --dport %d -j ACCEPT", constants.SidecarAdminPort),
 
+	"-A OUTPUT -p udp -d 127.0.0.153 --dport 53 -j DNAT --to-destination 127.0.0.153:5300",
+
 	// For outbound TCP traffic jump from OUTPUT chain to OSM_PROXY_OUTBOUND chain
 	"-A OUTPUT -p tcp -j OSM_PROXY_OUTBOUND",
 
