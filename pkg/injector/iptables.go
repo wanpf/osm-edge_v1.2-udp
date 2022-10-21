@@ -16,7 +16,7 @@ var iptablesOutboundStaticRules = []string{
 	fmt.Sprintf("-A OSM_PROXY_OUT_REDIRECT -p tcp -j REDIRECT --to-port %d", constants.SidecarTCPOutboundListenerPort),
 
 	// Redirects outbound UDP traffic hitting OSM_PROXY_OUT_REDIRECT chain to Sidecar's udp outbound listener port
-	fmt.Sprintf("-A OSM_PROXY_OUT_REDIRECT -p udp -j REDIRECT --to-port %d", constants.SidecarUDPOutboundListenerPort),
+	// fmt.Sprintf("-A OSM_PROXY_OUT_REDIRECT -p udp -j REDIRECT --to-port %d", constants.SidecarUDPOutboundListenerPort),
 
 	// Traffic to the Proxy Admin port flows to the Proxy -- not redirected
 	fmt.Sprintf("-A OSM_PROXY_OUT_REDIRECT -p tcp --dport %d -j ACCEPT", constants.SidecarAdminPort),
@@ -25,19 +25,19 @@ var iptablesOutboundStaticRules = []string{
 	"-A OUTPUT -p tcp -j OSM_PROXY_OUTBOUND",
 
 	// For outbound UDP traffic jump from OUTPUT chain to OSM_PROXY_OUTBOUND chain
-	"-A OUTPUT -p udp -j OSM_PROXY_OUTBOUND",
+	// "-A OUTPUT -p udp -j OSM_PROXY_OUTBOUND",
 
 	// Outbound traffic from Sidecar to the local app over the loopback interface should jump to the inbound proxy redirect chain.
 	// So when an app directs traffic to itself via the k8s service, traffic flows as follows:
 	// app -> local sidecar's outbound listener -> iptables -> local sidecar's inbound listener -> app
-	fmt.Sprintf("-A OSM_PROXY_OUTBOUND -o lo ! -d 127.0.0.1/32 -m owner --uid-owner %d -j OSM_PROXY_IN_REDIRECT", constants.SidecarUID),
+	fmt.Sprintf("-A OSM_PROXY_OUTBOUND -o lo ! -d 127.0.0.1/32 -m owner --gid-owner %d -j OSM_PROXY_IN_REDIRECT", constants.SidecarUID),
 
 	// Outbound traffic from the app to itself over the loopback interface is not be redirected via the proxy.
 	// E.g. when app sends traffic to itself via the pod IP.
-	fmt.Sprintf("-A OSM_PROXY_OUTBOUND -o lo -m owner ! --uid-owner %d -j RETURN", constants.SidecarUID),
+	fmt.Sprintf("-A OSM_PROXY_OUTBOUND -o lo -m owner ! --gid-owner %d -j RETURN", constants.SidecarUID),
 
 	// Don't redirect Sidecar traffic back to itself, return it to the next chain for processing
-	fmt.Sprintf("-A OSM_PROXY_OUTBOUND -m owner --uid-owner %d -j RETURN", constants.SidecarUID),
+	fmt.Sprintf("-A OSM_PROXY_OUTBOUND -m owner --gid-owner %d -j RETURN", constants.SidecarUID),
 
 	// Skip localhost traffic, doesn't need to be routed via the proxy
 	"-A OSM_PROXY_OUTBOUND -d 127.0.0.1/32 -j RETURN",
@@ -49,16 +49,19 @@ var iptablesInboundStaticRules = []string{
 	fmt.Sprintf("-A OSM_PROXY_IN_REDIRECT -p tcp -j REDIRECT --to-port %d", constants.SidecarTCPInboundListenerPort),
 
 	// Redirects inbound UDP traffic hitting the OSM_PROXY_IN_REDIRECT chain to Sidecar's udp inbound listener port
-	fmt.Sprintf("-A OSM_PROXY_IN_REDIRECT -p udp -j REDIRECT --to-port %d", constants.SidecarUDPInboundListenerPort),
+	// fmt.Sprintf("-A OSM_PROXY_IN_REDIRECT -p udp -j REDIRECT --to-port %d", constants.SidecarUDPInboundListenerPort),
 
 	// For tcp inbound traffic jump from PREROUTING chain to OSM_PROXY_INBOUND chain
 	"-A PREROUTING -p tcp -j OSM_PROXY_INBOUND",
 
 	// For udp inbound traffic jump from PREROUTING chain to OSM_PROXY_INBOUND chain
-	"-A PREROUTING -p udp -j OSM_PROXY_INBOUND",
+	// "-A PREROUTING -p udp -j OSM_PROXY_INBOUND",
 
 	// Skip metrics query traffic being directed to Sidecar's inbound prometheus listener port
 	fmt.Sprintf("-A OSM_PROXY_INBOUND -p tcp --dport %d -j RETURN", constants.SidecarPrometheusInboundListenerPort),
+
+	// UDP over HTTPS
+        fmt.Sprintf("-A OSM_PROXY_INBOUND -p tcp --dport %d -j RETURN", 15005),
 
 	// Skip inbound health probes; These ports will be explicitly handled by listeners configured on the
 	// Sidecar proxy IF any health probes have been configured in the Pod Spec.
@@ -123,7 +126,7 @@ func GenerateIptablesCommands(proxyMode configv1alpha2.LocalProxyMode, outboundI
 		// For sidecar -> local service container proxying, send traffic to pod IP instead of localhost
 		// *Note: it is important to use the insert option '-I' instead of the append option '-A' to ensure the
 		// DNAT to the pod ip for sidecar -> localhost traffic happens before the rule that redirects traffic to the proxy
-		cmds = append(cmds, fmt.Sprintf("-I OUTPUT -p tcp -o lo -d 127.0.0.1/32 -m owner --uid-owner %d -j DNAT --to-destination $POD_IP", constants.SidecarUID))
+		cmds = append(cmds, fmt.Sprintf("-I OUTPUT -p tcp -o lo -d 127.0.0.1/32 -m owner --gid-owner %d -j DNAT --to-destination $POD_IP", constants.SidecarUID))
 	}
 
 	// Ignore outbound traffic in specified interfaces
@@ -185,7 +188,7 @@ func GenerateIptablesCommands(proxyMode configv1alpha2.LocalProxyMode, outboundI
 
 	fmt.Fprint(&rules, "COMMIT")
 
-	cmd := fmt.Sprintf(`iptables-restore --noflush <<EOF
+	cmd := fmt.Sprintf(`ip rule add fwmark 1 lookup 100; ip route add local default dev lo table 100; iptables -t mangle -A PREROUTING -i lo -p udp -d 127.0.0.0/8 -j RETURN; iptables -t mangle -A PREROUTING -i lo -p udp -d $POD_IP -j RETURN; iptables -t mangle -A PREROUTING -i lo -p udp -j TPROXY --on-port 15002 --tproxy-mark 0x01/0x01; iptables -t mangle -I OUTPUT -p udp --dport 53 -j RETURN; iptables -t mangle -A OUTPUT -p udp -m owner ! --gid-owner 1500 -j MARK --set-mark 0x01/0x01; iptables-restore --noflush <<EOF
 %s
 EOF
 `, rules.String())
