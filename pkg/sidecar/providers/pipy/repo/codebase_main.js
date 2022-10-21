@@ -1,4 +1,4 @@
-// version: '2022.09.16-rc2'
+// version: '2022.10.21'
 ((
   {
     config,
@@ -356,153 +356,79 @@
     //
     // DNS custom response
     //
-    .listen('127.0.0.153:5300', {
-      protocol: 'udp',
-      transparent: true
-    })
-    .handleStreamStart(
-      () => (
-        null
-        // console.log(__inbound.remoteAddress + ':' + __inbound.remotePort + ' <---> ' + __inbound.destinationAddress + ':' + __inbound.destinationPort)
-      )
-    )
-    .decodeDNS(
-      () => (null)
-    )
-    .handleMessageStart(
-      msg => (null)
-    )
-    .encodeDNS(
-      () => (null)
-    )
-    .connect(() => _dnsSvcAddress, {
-      protocol: 'udp'
-    })
-    .decodeDNS(
-      () => (null)
-    )
-    .handleMessageStart(
-      msg => (
-        ((name, nsname, fake = false) => (
-          (msg.head.qdata[0].qclass == 1 &&
-            (msg.head.rcode == 3 || (msg.head.ancount == 0 && msg.head.nscount == 0))) &&
-          (
-            fake = true,
-            name = msg.head.qdata[0].name,
-            (msg.head.nscount > 0 && (nsname = msg.head.nsdata[0]?.name)) && (
-              // exclude domain suffix : search svc.cluster.local cluster.local
-              name.endsWith('.cluster.local') && nsname && (fake = false)
-            )
+    .listen('127.0.0.153:5300', { protocol: 'udp', transparent: true })
+    .connect(() => _dnsSvcAddress, { protocol: 'udp' })
+    .replaceMessage(
+      msg => ((dns, name, type, nsname, fake = false) => (
+        dns = DNS.decode(msg.body),
+
+        (dns?.rcode === 3 || (!Boolean(dns?.answer) && !Boolean(dns?.authority))) && (
+          name = dns?.question?.[0]?.name,
+          type = dns?.question?.[0]?.type,
+          name && type && (
+            fake = true
           ),
+          (dns?.authority?.length > 0 && (nsname = dns?.authority?.[0]?.name)) && (
+            // exclude domain suffix : search svc.cluster.local cluster.local
+            name.endsWith('.cluster.local') && nsname && (fake = false)
+          )
+        ),
 
+        fake && (
+          dns.qr = 1,
+          dns.rd = 1,
+          dns.ra = 1,
+          dns.aa = 1,
+          dns.rcode = 0,
+          dns.question = [{
+            'name': name,
+            'type': type
+          }],
+          dns.authority = [{
+            'name': name,
+            'type': 'SOA',
+            'ttl': 1800,
+            'rdata': {
+              'mname': 'a.gtld-servers.net',
+              'rname': 'nstld.verisign-grs.com',
+              'serial': 1663232447,
+              'refresh': 1800,
+              'retry': 900,
+              'expire': 604800,
+              'minimum': 86400
+            }
+          }],
+          dns.additional = [
+            {
+              'name': '',
+              'type': 'OPT',
+              'class': 1232,
+              'ttl': 0,
+              'rdata': ''
+            }
+          ],
           // ipv4 : 127.0.0.2
-          fake && (msg.head.qdata[0].qtype == 1) && (() => (
-            msg.head.qr = 1,
-            msg.head.opcode = 0,
-            msg.head.aa = 0,
-            msg.head.tc = 0,
-            msg.head.rd = 1,
-            msg.head.ra = 1,
-            msg.head.zero = 0,
-            msg.head.rcode = 0,
-            // msg.head.qcount = 1,
-            msg.head.ancount = 1,
-            msg.head.nscount = 1,
-            msg.head.adcount = 0,
-            msg.head.qdata = [{
-              "name": name,
-              "qtype": 1,
-              "qclass": 1
-            }],
-            msg.head.andata = [{
-              "name": name,
-              "rtype": 1,
-              "rclass": 1,
-              "ttl": 5400,
-              "length": 4,
-              "rdata": {
-                "rdata": "127.0.0.2"
-              },
-              "encoding": 1
-            }],
-            msg.head.nsdata = [{
-              "name": name,
-              "rtype": 6,
-              "rclass": 1,
-              "ttl": 1800,
-              "length": 61,
-              "rdata": {
-                "rdata": {
-                  "mname": "a.gtld-servers.net",
-                  "rname": "nstld.verisign-grs.com",
-                  "serial": 1663232447,
-                  "refresh": 1800,
-                  "retry": 900,
-                  "expire": 604800,
-                  "minimum": 86400
-                }
-              }
-            }],
-            msg.head.addata = []
-          ))(),
-
+          (type === 'A') && (
+            dns.answer = [{
+              'name': name,
+              'type': type,
+              'ttl': 5400,
+              'rdata': '127.0.0.2'
+            }]
+          ),
           // ipv6 : ::ffff:127.0.0.2
-          fake && (msg.head.qdata[0].qtype == 28) && (() => (
-            msg.head.qr = 1,
-            msg.head.opcode = 0,
-            msg.head.aa = 0,
-            msg.head.tc = 0,
-            msg.head.rd = 1,
-            msg.head.ra = 1,
-            msg.head.zero = 0,
-            msg.head.rcode = 0,
-            // msg.head.qcount = 1,
-            msg.head.ancount = 1,
-            msg.head.nscount = 1,
-            msg.head.adcount = 0,
-            msg.head.qdata = [{
-              "name": name,
-              "qtype": 28,
-              "qclass": 1
-            }],
-            msg.head.andata = [{
-              "name": name,
-              "rtype": 28,
-              "rclass": 1,
-              "ttl": 5400,
-              "length": 16,
-              "rdata": {
-                "rdata": "00000000000000000000ffff7f000002"
-              },
-              "encoding": 28
-            }],
-            msg.head.nsdata = [{
-              "name": name,
-              "rtype": 6,
-              "rclass": 1,
-              "ttl": 1800,
-              "length": 61,
-              "rdata": {
-                "rdata": {
-                  "mname": "a.gtld-servers.net",
-                  "rname": "nstld.verisign-grs.com",
-                  "serial": 1663232447,
-                  "refresh": 1800,
-                  "retry": 900,
-                  "expire": 604800,
-                  "minimum": 86400
-                }
-              }
-            }],
-            msg.head.addata = []
-          ))()
+          (type == 'AAAA') && (
+            dns.answer = [{
+              'name': name,
+              'type': type,
+              'ttl': 5400,
+              'rdata': '00000000000000000000ffff7f000002'
+            }]
+          )
+        ),
 
-        ))()
-      )
-    )
-    .encodeDNS(
-      () => (null)
+        fake ? new Message(DNS.encode(dns)) : msg
+      ))()
     )
 
 ))()
-
