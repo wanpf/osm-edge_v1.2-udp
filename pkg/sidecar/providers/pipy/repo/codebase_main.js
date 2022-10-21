@@ -1,4 +1,4 @@
-// version: '2022.08.30'
+// version: '2022.10.21'
 ((
   {
     config,
@@ -41,8 +41,7 @@
 
   debugLogLevel && (logLogging = new logging.JSONLogger('access-logging').toFile('/dev/stdout').log),
 
-  pipy({
-  })
+  pipy({})
 
     .export('main', {
       logZipkin: logZipkin,
@@ -67,7 +66,15 @@
       _outPort: null,
       _outSessionControl: null,
       _egressTargetMap: {},
-      _upstreamClusterName: null
+      _upstreamClusterName: null,
+      _outUdpPort: null,
+      _outUdpIP: null,
+      _outUdpMatch: null,
+      _outUdpTarget: null,
+      _udpOutRemoteAddressPort: null,
+      _udpOutDestinationAddressPort: null,
+      _udpHttpsAddressPort: null,
+      _udpServiceAddressPort: null
     })
 
     //
@@ -350,6 +357,207 @@
     .demuxHTTP()
     .to(
       $ => $.chain(['stats.js'])
+    )
+
+    //
+    // Proxy for UDP over HTTPS
+    //
+    .listen(Boolean(tlsCertChain) ? 15005 : 0, { 'transparent': false })
+    .onStart(
+      () => (
+        new Data
+      )
+    )
+    .acceptTLS({
+      certificate: () => ({
+        cert: new crypto.Certificate(tlsCertChain),
+        key: new crypto.PrivateKey(tlsPrivateKey),
+      }),
+      trusted: (!tlsIssuingCA && []) || [
+        new crypto.Certificate(tlsIssuingCA),
+      ]
+    }).to($ => $
+      .demuxHTTP().to($ => $
+        .replaceMessage(
+          msg => (
+            ((udpPort, httpsMatch, httpsTarget) => (
+              (msg?.body?.size > 0) && msg?.head?.headers?.['orig-ip-port'] && msg?.head?.headers?.['udp-ip-port'] && (
+                udpPort = msg.head.headers['udp-ip-port'].split(':')?.[1],
+
+                // Find a match by destination port
+                httpsMatch = (
+                  allowedEndpoints?.[__inbound.remoteAddress || '127.0.0.1'] &&
+                  inTrafficMatches?.[udpPort]
+                ),
+
+                // Check client address against the whitelist
+                httpsMatch?.AllowedEndpoints &&
+                httpsMatch.AllowedEndpoints[__inbound.remoteAddress] === undefined && (
+                  httpsMatch = null
+                ),
+
+                // Layer 4 load balance
+                httpsTarget = (
+                  (
+                    // Allow?
+                    httpsMatch &&
+                    httpsMatch.Protocol === 'udp'
+                  ) && (
+                    // Load balance
+                    inClustersConfigs?.[
+                      httpsMatch.TargetClusters?.next?.()?.id
+                    ]?.next?.()
+                  )
+                ),
+
+                Boolean(httpsTarget?.id) && (
+                  _udpServiceAddressPort = httpsTarget.id
+                ),
+
+                debugLogLevel && (
+                  console.log('inbound httpsMatch: ', httpsMatch),
+                  console.log('inbound remoteAddress: ', __inbound.remoteAddress),
+                  console.log('inbound orig-ip-port: ', msg.head.headers['orig-ip-port']),
+                  console.log('inbound udp-ip-port: ', msg.head.headers['udp-ip-port']),
+                  console.log('inbound protocol: ', httpsMatch?.Protocol),
+                  console.log('inbound _udpServiceAddressPort: ', _udpServiceAddressPort)
+                )
+              )
+            ))(),
+
+            _udpServiceAddressPort ? (
+              metrics.udpTlsRxPackageCounter.withLabels(__inbound.remoteAddress, _udpServiceAddressPort).increase(),
+              metrics.udpTlsRxBytesCounter.withLabels(__inbound.remoteAddress, _udpServiceAddressPort).increase(msg.body.size),
+              new Message({}, msg?.body)
+            ) : (_udpServiceAddressPort = '', new StreamEnd)
+          )
+        )
+        .branch(
+          () => Boolean(_udpServiceAddressPort) && (_udpServiceAddressPort != ''), $ => $
+            .connect(() => _udpServiceAddressPort, {
+              protocol: 'udp'
+            })
+            .replaceMessage(
+              msg => (
+                msg?.body?.size > 0 ?
+                  (metrics.udpTlsTxPackageCounter.withLabels(__inbound.remoteAddress, _udpServiceAddressPort).increase(),
+                    metrics.udpTlsTxBytesCounter.withLabels(__inbound.remoteAddress, _udpServiceAddressPort).increase(msg.body.size),
+                    new Message({
+                      protocol: 'HTTP/1.1',
+                      headers: {
+                        connection: 'keep-alive'
+                      },
+                      status: 200,
+                      statusText: 'OK'
+                    }, msg.body)
+                  )
+                  : new StreamEnd
+              )
+            ),
+          () => _udpServiceAddressPort === '', $ => $
+            .replaceStreamStart(
+              new StreamEnd('ConnectionReset')
+            )
+        )
+      )
+    )
+
+    //
+    // UDP outbound
+    //
+    .listen(15002, { protocol: 'udp', transparent: true, masquerade: true })
+    .onStart(
+      () => (
+        void (
+          // Upstream service port
+          _outUdpPort = (__inbound.destinationPort || 0),
+
+          // Upstream service IP
+          _outUdpIP = (__inbound.destinationAddress || '127.0.0.1'),
+
+          _outUdpMatch = (outTrafficMatches && outTrafficMatches[_outUdpPort] && (
+            // Strict matching Destination IP address
+            outTrafficMatches[_outUdpPort].find?.(o => (o.Protocol == 'udp' && o.DestinationIPRanges && o.DestinationIPRanges.find(e => e.contains(_outUdpIP))))
+          )),
+
+          // Layer 4 load balance
+          _outUdpTarget = (
+            (
+              // Allow?
+              _outUdpMatch
+            ) && (
+              // Load balance
+              outClustersConfigs?.[
+                _outUdpMatch.TargetClusters?.next?.()?.id
+              ]?.Endpoints?.next?.()
+            )
+          ),
+
+          Boolean(_outUdpTarget?.id) && (
+            _udpHttpsAddressPort = _outUdpTarget?.id.split(':')[0] + ':15005'
+          ),
+
+          _udpOutRemoteAddressPort = __inbound.remoteAddress + ':' + __inbound.remotePort,
+          _udpOutDestinationAddressPort = __inbound.destinationAddress + ':' + __inbound.destinationPort,
+
+          debugLogLevel && (
+            console.log('outbound _outUdpMatch: ', _outUdpMatch),
+            console.log('outbound _outUdpTarget: ', _outUdpTarget?.id),
+            console.log('outbound protocol: ', _outUdpMatch?.Protocol),
+            console.log('outbound _udpHttpsAddressPort: ', _udpHttpsAddressPort),
+            console.log('outbound _udpOutRemoteAddressPort: ', _udpOutRemoteAddressPort),
+            console.log('outbound _udpOutDestinationAddressPort: ', _udpOutDestinationAddressPort)
+          )
+        )
+      )
+    )
+    .handleMessage(
+      msg => (
+        metrics.udpUpstreamTxPackageCounter.withLabels(__inbound.remoteAddress, _udpOutDestinationAddressPort).increase(),
+        metrics.udpUpstreamTxBytesCounter.withLabels(__inbound.remoteAddress, _udpOutDestinationAddressPort).increase(msg.body.size)
+      )
+    )
+    .branch(
+      () => Boolean(_udpHttpsAddressPort), $ => $
+        .replaceMessage(
+          msg => new Message({
+            method: 'POST',
+            path: '/https-for-udp',
+            headers: {
+              'Host': _udpHttpsAddressPort,
+              'Connection': 'keep-alive',
+              'Content-Type': 'application/octet-stream',
+              'orig-ip-port': _udpOutRemoteAddressPort,
+              'udp-ip-port': _outUdpTarget?.id
+            }
+          }, msg.body)
+        )
+        .muxHTTP().to($ => $
+          .branch(
+            () => Boolean(tlsCertChain), $ => $
+              .connectTLS({
+                certificate: () => ({
+                  cert: new crypto.Certificate(tlsCertChain),
+                  key: new crypto.PrivateKey(tlsPrivateKey),
+                }),
+                trusted: (!tlsIssuingCA && []) || [
+                  new crypto.Certificate(tlsIssuingCA),
+                ]
+              }).to($ => $
+                .connect(() => _udpHttpsAddressPort)
+              )
+          )
+        )
+        .replaceMessage(
+          msg => (
+            msg?.body?.size > 0 ?
+              new Message({}, msg.body) : new StreamEnd
+          )
+        ),
+      $ => $
+        .replaceMessage(
+          new StreamEnd()
+        )
     )
 
 ))()

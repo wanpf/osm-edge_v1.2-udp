@@ -1,4 +1,4 @@
-// version: '2022.08.12'
+// version: '2022.10.21'
 (
   (metrics) => (
 
@@ -34,6 +34,13 @@
       requestSendResetCounter: new stats.Counter('sidecar_cluster_upstream_rq_tx_reset', ['sidecar_cluster_name']),
       // }}} TBD end
 
+      // UDP transfer metrics 
+      udpUpstreamTxPackageCounter: new stats.Counter('sidecar_udp_upstream_cx_tx_package_total', ['source', 'destination']),
+      udpUpstreamTxBytesCounter: new stats.Counter('sidecar_udp_upstream_cx_tx_bytes_total', ['source', 'destination']),
+      udpTlsRxPackageCounter: new stats.Counter('sidecar_udp_tls_cx_rx_package_total', ['source', 'destination']),
+      udpTlsRxBytesCounter: new stats.Counter('sidecar_udp_tls_cx_rx_bytes_total', ['source', 'destination']),
+      udpTlsTxPackageCounter: new stats.Counter('sidecar_udp_tls_cx_tx_package_total', ['source', 'destination']),
+      udpTlsTxBytesCounter: new stats.Counter('sidecar_udp_tls_cx_tx_bytes_total', ['source', 'destination'])
     },
 
     metrics.funcInitClusterNameMetrics = (namespace, kind, name, pod, clusterName) => (

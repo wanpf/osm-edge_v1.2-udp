@@ -21,6 +21,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 
 		fmt.Printf("Connected: %T, %v\n", conn, conn)
 
