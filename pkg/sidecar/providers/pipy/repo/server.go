@@ -68,70 +68,43 @@ func (s *Server) Start(_ uint32, _ *certificate.Certificate) error {
 		{
 			Basepath: osmCodebase,
 			Items: []client.BatchItem{
-				{
-					Filename: "main.js",
-					Content:  codebaseMainJS,
-				},
-				{
-					Filename: "config.js",
-					Content:  codebaseConfigJS,
-				},
-				{
-					Filename: "metrics.js",
-					Content:  codebaseMetricsJS,
-				},
+
+				{ Filename: "outbound-tcp-load-balance.js", Content:  codebase_outbound_tcp_load_balance_js },
+				{ Filename: "logging-init.js", Content:  codebase_logging_init_js },
+				{ Filename: "utils.js", Content:  codebase_utils_js },
+				{ Filename: "tracing-init.js", Content:  codebase_tracing_init_js },
+				{ Filename: "metrics-http.js", Content:  codebase_metrics_http_js },
+				{ Filename: "config.js", Content:  codebase_config_js },
+				{ Filename: "tracing.js", Content:  codebase_tracing_js },
+				{ Filename: "metrics-init.js", Content:  codebase_metrics_init_js },
+				{ Filename: "logging.js", Content:  codebase_logging_js },
+				{ Filename: "metrics-tcp.js", Content:  codebase_metrics_tcp_js },
+				{ Filename: "inbound-throttle.js", Content:  codebase_inbound_throttle_js },
+				{ Filename: "main.js", Content:  codebase_main_js },
+				{ Filename: "breaker.js", Content:  codebase_breaker_js },
+				{ Filename: "inbound-mux-http.js", Content:  codebase_inbound_mux_http_js },
+				{ Filename: "outbound-mux-http.js", Content:  codebase_outbound_mux_http_js },
+				{ Filename: "outbound-http-routing.js", Content:  codebase_outbound_http_routing_js },
+				{ Filename: "inbound-demux-http.js", Content:  codebase_inbound_demux_http_js },
+				{ Filename: "inbound-tls-termination.js", Content:  codebase_inbound_tls_termination_js },
+				{ Filename: "outbound-breaker.js", Content:  codebase_outbound_breaker_js },
+				{ Filename: "inbound-proxy-tcp.js", Content:  codebase_inbound_proxy_tcp_js },
+				{ Filename: "stats.js", Content:  codebase_stats_js },
+				{ Filename: "outbound-classifier.js", Content:  codebase_outbound_classifier_js },
+				{ Filename: "inbound-http-routing.js", Content:  codebase_inbound_http_routing_js },
+				{ Filename: "outbound-proxy-tcp.js", Content:  codebase_outbound_proxy_tcp_js },
+				{ Filename: "codes.js", Content:  codebase_codes_js },
+				{ Filename: "inbound-classifier.js", Content:  codebase_inbound_classifier_js },
+				{ Filename: "inbound-tcp-load-balance.js", Content:  codebase_inbound_tcp_load_balance_js },
+				{ Filename: "outbound-demux-http.js", Content:  codebase_outbound_demux_http_js },
+
+
+
 				{
 					Filename: osmCodebaseConfig,
 					Content:  codebaseConfigJSON,
 				},
-				{
-					Filename: "codes.js",
-					Content:  codebaseCodesJS,
-				},
-				{
-					Filename: "breaker.js",
-					Content:  codebaseBreakerJS,
-				},
-				{
-					Filename: "gather.js",
-					Content:  codebaseGatherJS,
-				},
-				{
-					Filename: "stats.js",
-					Content:  codebaseStatsJS,
-				},
-				{
-					Filename: "inbound-proxy-tcp.js",
-					Content:  codebaseInboundProxyTCPJS,
-				},
-				{
-					Filename: "inbound-recv-http.js",
-					Content:  codebaseInboundRecvHTTPJS,
-				},
-				{
-					Filename: "inbound-recv-tcp.js",
-					Content:  codebaseInboundRecvTCPJS,
-				},
-				{
-					Filename: "inbound-throttle.js",
-					Content:  codebaseInboundThrottleJS,
-				},
-				{
-					Filename: "outbound-breaker.js",
-					Content:  codebaseOutboundBreakerJS,
-				},
-				{
-					Filename: "outbound-mux-http.js",
-					Content:  codebaseOutboundMuxHTTPJS,
-				},
-				{
-					Filename: "outbound-proxy-tcp.js",
-					Content:  codebaseOutboundProxyTCPJS,
-				},
-				{
-					Filename: "outbound-recv-http.js",
-					Content:  codebaseOutboundRecvHTTPJS,
-				},
+
 			},
 		},
 	})
@@ -146,3 +119,4 @@ func (s *Server) Start(_ uint32, _ *certificate.Certificate) error {
 
 	return nil
 }
+
